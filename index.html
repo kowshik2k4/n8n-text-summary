@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Text Analysis — Capture n8n Response</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gradient-to-br from-gray-50 to-gray-100 min-h-screen flex items-center justify-center p-6">
+  <div class="w-full max-w-3xl bg-white rounded-2xl shadow-lg p-6">
+    <h1 class="text-2xl md:text-3xl font-semibold text-gray-800 mb-3">Automated Text Analysis — Demo</h1>
+    <p class="text-sm text-gray-500 mb-6">
+      Paste text below and click <span class="font-medium">Analyze</span>. The summary returned by your n8n workflow's last node will appear.
+    </p>
+
+    <label class="block text-sm font-medium text-gray-700 mb-2">Input Text</label>
+    <textarea id="textInput" rows="6"
+      class="w-full resize-none p-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300"
+      placeholder="Enter or paste paragraph to summarize or analyze..."></textarea>
+
+    <div class="flex gap-3 mt-4">
+      <button id="submitBtn" class="inline-flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg shadow">
+        <svg id="sendIcon" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m7-7H5"/></svg>
+        Analyze
+      </button>
+
+      <button id="clearBtn" class="inline-flex items-center justify-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-medium py-2 px-3 rounded-lg">
+        Clear
+      </button>
+
+      <div id="status" class="ml-auto text-sm text-gray-500 self-center"></div>
+    </div>
+
+    <!-- Result card -->
+    <div id="resultCard" class="mt-6 hidden border border-gray-100 rounded-lg p-4 bg-gray-50">
+      <div class="flex items-start justify-between">
+        <div>
+          <p class="text-xs text-gray-500">Original Text</p>
+          <p id="originalText" class="mt-1 text-sm text-gray-800"></p>
+        </div>
+
+        <div class="ml-4 text-right">
+          <p class="text-xs text-gray-500">Success</p>
+          <p id="successFlag" class="mt-1 text-sm font-medium text-gray-800"></p>
+        </div>
+      </div>
+
+      <hr class="my-3 border-gray-200" />
+
+      <div>
+        <p class="text-sm font-semibold text-gray-700">Summary / Result</p>
+        <div class="mt-2 flex items-start gap-3">
+          <p id="summaryText" class="text-gray-800 whitespace-pre-wrap flex-1"></p>
+          <div class="flex flex-col gap-2">
+            <button id="copyBtn" class="self-end inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-1 px-3 rounded">
+              Copy
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <p id="debugInfo" class="mt-3 text-xs text-gray-400"></p>
+    </div>
+  </div>
+
+  <script>
+    // === REPLACE THIS with your n8n Production Webhook URL ===
+    const WEBHOOK_URL = "https://kowshik234.app.n8n.cloud/webhook/text-summary";
+
+    const submitBtn = document.getElementById('submitBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const status = document.getElementById('status');
+    const resultCard = document.getElementById('resultCard');
+    const originalTextEl = document.getElementById('originalText');
+    const summaryTextEl = document.getElementById('summaryText');
+    const successFlagEl = document.getElementById('successFlag');
+    const debugInfo = document.getElementById('debugInfo');
+    const copyBtn = document.getElementById('copyBtn');
+
+    function setLoading(on) {
+      submitBtn.disabled = on;
+      submitBtn.style.opacity = on ? '0.7' : '1';
+      status.innerText = on ? 'Working...' : '';
+    }
+
+    function extractResult(payload) {
+      // Robust extractor: tries several common shapes and returns string or null
+      // 1) payload.result
+      if (!payload) return null;
+
+      // If payload is an array with one element
+      if (Array.isArray(payload)) {
+        if (payload.length === 0) return null;
+        // try first element
+        payload = payload[0];
+      }
+
+      // If payload has 'body' object (from Webhook Trigger echo)
+      if (payload.body && typeof payload.body === 'object') {
+        // the Set node likely returned keys at top-level, but in some setups the webhook response wraps them inside 'body'
+        // attempt useful keys:
+        if (payload.body.result) return payload.body.result;
+        if (payload.body.final_result) return payload.body.final_result;
+      }
+
+      // Common keys
+      if (typeof payload.result === 'string' && payload.result.trim() !== '') return payload.result;
+      if (typeof payload.final_result === 'string' && payload.final_result.trim() !== '') return payload.final_result;
+
+      // Some n8n respondToWebhook returns the entire item as top-level fields:
+      if (typeof payload.original_text === 'string' && (typeof payload.result === 'string' || typeof payload.final_result === 'string')) {
+        return payload.result || payload.final_result || null;
+      }
+
+      // Sometimes the response is nested: payload.data[0].json
+      if (payload.data && Array.isArray(payload.data) && payload.data[0] && payload.data[0].json) {
+        const inner = payload.data[0].json;
+        if (inner.result) return inner.result;
+        if (inner.final_result) return inner.final_result;
+        if (inner.content && inner.content.parts && inner.content.parts[0] && inner.content.parts[0].text) return inner.content.parts[0].text;
+      }
+
+      // If payload has content.parts (Gemini raw)
+      if (payload.content && Array.isArray(payload.content.parts) && payload.content.parts[0].text) {
+        return payload.content.parts[0].text;
+      }
+
+      // If nothing matched, attempt to find the first string property
+      for (const k in payload) {
+        if (typeof payload[k] === 'string' && payload[k].trim().length > 0) return payload[k];
+      }
+
+      return null;
+    }
+
+    submitBtn.addEventListener('click', async () => {
+      const textInput = document.getElementById('textInput').value.trim();
+      resultCard.classList.add('hidden');
+      debugInfo.innerText = '';
+
+      if (!textInput) {
+        alert('Please enter some text to analyze.');
+        return;
+      }
+
+      setLoading(true);
+
+      try {
+        // show quick feedback
+        status.innerText = 'Sending to n8n...';
+
+        const resp = await fetch(WEBHOOK_URL, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ text_to_analyze: textInput })
+        });
+
+        // network-level errors
+        if (!resp.ok) {
+          const txt = await resp.text().catch(() => '');
+          throw new Error(`HTTP ${resp.status} ${resp.statusText} - ${txt}`);
+        }
+
+        // parse json (n8n usually returns JSON)
+        const data = await resp.json().catch(() => null);
+
+        // Try to extract the useful summary/result
+        let summary = extractResult(data);
+
+        // If not found, try one more: if data has top-level array with .json items
+        if (!summary && Array.isArray(data) && data[0] && data[0].json) {
+          summary = extractResult(data[0].json);
+        }
+
+        // Populate UI
+        originalTextEl.innerText = textInput;
+        summaryTextEl.innerText = summary || 'No `result` field found in the response. See debug info below.';
+        successFlagEl.innerText = (data && (data.success === true || (data[0] && data[0].json && data[0].json.success === true))) ? 'Yes' : '—';
+
+        // show debug data so you can inspect shape (remove on final submission if not needed)
+        debugInfo.innerText = 'DEBUG (raw response): ' + JSON.stringify(data, null, 2);
+
+        resultCard.classList.remove('hidden');
+      } catch (err) {
+        console.error(err);
+        debugInfo.innerText = `Error: ${err.message || err}`;
+        resultCard.classList.remove('hidden');
+        originalTextEl.innerText = textInput;
+        summaryTextEl.innerText = 'Error occurred — check debug info.';
+        successFlagEl.innerText = 'No';
+      } finally {
+        setLoading(false);
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      document.getElementById('textInput').value = '';
+      resultCard.classList.add('hidden');
+      status.innerText = '';
+      debugInfo.innerText = '';
+    });
+
+    copyBtn.addEventListener('click', async () => {
+      const text = summaryTextEl.innerText;
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        copyBtn.innerText = 'Copied';
+        setTimeout(() => (copyBtn.innerText = 'Copy'), 1500);
+      } catch {
+        alert('Unable to copy to clipboard.');
+      }
+    });
+  </script>
+</body>
+</html>

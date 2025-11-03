@@ -1,0 +1,150 @@
+{
+  "name": "Automated Text Analysis with LLM Integration",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "text-summary",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "22501734-df6f-4ff8-9ca7-247605f0686a",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        704,
+        320
+      ],
+      "webhookId": "83c86773-0f29-447e-b828-bd97bd25b35e"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.5-flash",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.5-flash"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=Provide a concise summary (2-3 sentences) of the following text:\n\n{{ $json.body.text_to_analyze }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "c3cecad6-44ef-4112-84f4-c242953f979b",
+      "name": "Gemini Text Analysis",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [
+        928,
+        320
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "Luz6AJppyS6JRIFx",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "id-1",
+              "name": "success",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "id-3",
+              "name": "original_text",
+              "value": "={{ $('Webhook Trigger').item.json.body.text_to_analyze }}",
+              "type": "string"
+            },
+            {
+              "id": "id-4",
+              "name": "result",
+              "value": "={{ $json.content.parts[0].text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "e2cbbc23-995e-4874-8b9a-dfa6ac86d5f5",
+      "name": "Format Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1280,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "0eee441c-1678-4c0d-8bfe-04b39e2451d4",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        1504,
+        320
+      ]
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Gemini Text Analysis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Text Analysis": {
+      "main": [
+        [
+          {
+            "node": "Format Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Response": {
+      "main": [
+        [
+          {
+            "node": "Send Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "a3911c62-dfe2-418b-88c2-b88ba69a4799",
+  "meta": {
+    "instanceId": "45be5ac48db3c66ec886561cc806945ec44fff18e27805f76f44c2a802f66144"
+  },
+  "id": "O98ciGY2dLzfqSyv",
+  "tags": []
+}
